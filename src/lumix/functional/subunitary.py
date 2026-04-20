@@ -31,21 +31,21 @@ def resolve_insertion_loss(raw: jnp.ndarray | None, insertion_loss_db: LossSpec)
     raw = jnp.asarray(raw, dtype=jnp.float32)
 
     if minimum_loss_db is not None and maximum_loss_db is not None:
+        if maximum_loss_db < minimum_loss_db:
+            raise ValueError("maximum insertion loss must be greater than or equal to minimum insertion loss")
+        if maximum_loss_db == minimum_loss_db:
+            return jnp.asarray(minimum_loss_db, dtype=jnp.float32)
         minimum = jnp.asarray(minimum_loss_db, dtype=jnp.float32)
         maximum = jnp.asarray(maximum_loss_db, dtype=jnp.float32)
-        if float(maximum) < float(minimum):
-            raise ValueError("maximum insertion loss must be greater than or equal to minimum insertion loss")
-        if float(maximum) == float(minimum):
-            return minimum
         return minimum + (maximum - minimum) * jax.nn.sigmoid(raw)
 
     if minimum_loss_db is not None:
         minimum = jnp.asarray(minimum_loss_db, dtype=jnp.float32)
         return minimum + jax.nn.softplus(raw)
 
-    maximum = jnp.asarray(maximum_loss_db, dtype=jnp.float32)
-    if float(maximum) < 0.0:
+    if maximum_loss_db < 0.0:
         raise ValueError("maximum insertion loss must be non-negative")
+    maximum = jnp.asarray(maximum_loss_db, dtype=jnp.float32)
     return maximum * jax.nn.sigmoid(raw)
 
 
