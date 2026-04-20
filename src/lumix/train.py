@@ -17,8 +17,13 @@ def accuracy(y_true: jnp.ndarray, probs: jnp.ndarray) -> jnp.ndarray:
 
 def create_state(module, rng, sample_x: jnp.ndarray, learning_rate: float) -> TrainState:
     variables = module.init(rng, sample_x)
+    constants = {name: value for name, value in variables.items() if name != "params"}
     optimizer = optax.adam(learning_rate)
-    return TrainState.create(apply_fn=module.apply, params=variables["params"], tx=optimizer)
+
+    def apply_fn(variable_dict, batch_x):
+        return module.apply({**constants, **variable_dict}, batch_x)
+
+    return TrainState.create(apply_fn=apply_fn, params=variables["params"], tx=optimizer)
 
 
 @jax.jit

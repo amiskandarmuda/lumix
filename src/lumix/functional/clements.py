@@ -1,6 +1,8 @@
 import jax.numpy as jnp
 from jax import random
 
+from lumix.spec import ClementsSpec
+
 
 def layer_mask(width: int, depth: int) -> jnp.ndarray:
     full_pairs = width // 2
@@ -117,6 +119,15 @@ def sample_gamma(key, width: int) -> jnp.ndarray:
     return random.uniform(key, (1, width), minval=0.0, maxval=2.0 * jnp.pi, dtype=jnp.float32)
 
 
+def build_clements_spec(width: int, depth: int) -> ClementsSpec:
+    return ClementsSpec(
+        width=width,
+        depth=depth,
+        perm=grid_permutation(width, depth),
+        mask=layer_mask(width, depth),
+    )
+
+
 def init_clements(key, width: int, depth: int, hadamard: bool = False) -> dict[str, jnp.ndarray]:
     theta_key, phi_key, gamma_key = random.split(key, 3)
     return {
@@ -126,8 +137,13 @@ def init_clements(key, width: int, depth: int, hadamard: bool = False) -> dict[s
     }
 
 
-def mask_phases(theta: jnp.ndarray, phi: jnp.ndarray, width: int, hadamard: bool = False) -> tuple[jnp.ndarray, jnp.ndarray]:
-    mask = layer_mask(width, theta.shape[0]).astype(theta.dtype)
+def mask_phases(
+    theta: jnp.ndarray,
+    phi: jnp.ndarray,
+    mask: jnp.ndarray,
+    hadamard: bool = False,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    mask = mask.astype(theta.dtype)
     bar_state = 0.0 if hadamard else jnp.pi
     theta_masked = theta * mask + (1.0 - mask) * bar_state
     phi_masked = phi * mask + (1.0 - mask) * bar_state
@@ -196,22 +212,21 @@ def clements_pair(
     theta: jnp.ndarray,
     phi: jnp.ndarray,
     gamma: jnp.ndarray,
+    spec: ClementsSpec | None = None,
     hadamard: bool = False,
 ) -> jnp.ndarray:
-    width = values.shape[-1]
-    depth = theta.shape[0]
-    theta_masked, phi_masked = mask_phases(theta, phi, width, hadamard=hadamard)
-    internal = differential_layout(theta_masked, width)
-    output = stripe_layout(phi_masked, width)
-    permutations = grid_permutation(width, depth)
+    mesh_spec = build_clements_spec(values.shape[-1], theta.shape[0]) if spec is None else spec
+    theta_masked, phi_masked = mask_phases(theta, phi, mesh_spec.mask, hadamard=hadamard)
+    internal = differential_layout(theta_masked, mesh_spec.width)
+    output = stripe_layout(phi_masked, mesh_spec.width)
     next_values = values * jnp.exp(1j * gamma)
-    next_values = next_values[..., permutations[0]]
-    for layer_index in range(depth):
+    next_values = next_values[..., mesh_spec.perm[0]]
+    for layer_index in range(mesh_spec.depth):
         next_values = apply_pair_layer(
             next_values,
             internal[:, layer_index],
             output[:, layer_index],
             hadamard=hadamard,
         )
-        next_values = next_values[..., permutations[layer_index + 1]]
+        next_values = next_values[..., mesh_spec.perm[layer_index + 1]]
     return next_values

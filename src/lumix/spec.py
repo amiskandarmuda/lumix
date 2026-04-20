@@ -1,5 +1,15 @@
 from dataclasses import dataclass
 
+from flax import struct
+
+
+@struct.dataclass
+class ClementsSpec:
+    width: int
+    depth: int
+    perm: object
+    mask: object
+
 
 @dataclass(frozen=True)
 class MeshSpec:
