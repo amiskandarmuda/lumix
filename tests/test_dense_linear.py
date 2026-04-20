@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from lumix.functional.subunitary import resolve_insertion_loss, subunitary_matrix
+from lumix.functional.subunitary import insertion_loss_amplitude, insertion_loss_bounds, subunitary_matrix
 from lumix.functional.unitary import unitary_matrix
 from lumix.linen.readout import PowerReadout
 from lumix.linen.subunitary import SubUnitaryLinear
@@ -55,39 +55,47 @@ def test_unitary_matrix_is_unitary():
 
 
 def test_subunitary_matrix_has_bounded_singular_values():
-    model = SubUnitaryLinear(width=8)
+    model = SubUnitaryLinear(width=8, insertion_loss_db=(0.5, 2.0))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(3), values)
     matrix = subunitary_matrix(
         variables["params"]["raw"],
-        jnp.asarray(0.0, dtype=jnp.float32),
+        (0.5, 2.0),
     )
     singular = jnp.linalg.svd(matrix, compute_uv=False)
-    assert float(jnp.max(singular)) <= 1.0 + 1e-5
+    singular_min, singular_max = insertion_loss_bounds((0.5, 2.0))
+    assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
+    assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
 
 
-def test_subunitary_default_initialization_starts_near_zero_loss():
-    model = SubUnitaryLinear(width=8, insertion_loss_db=(0.0, 3.0))
+def test_subunitary_fixed_loss_sets_exact_singular_values():
+    model = SubUnitaryLinear(width=8, insertion_loss_db=1.5)
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(4), values)
-    loss_db = resolve_insertion_loss(variables["params"]["loss_raw"], (0.0, 3.0))
-    assert 0.0 <= float(loss_db) < 0.1
+    matrix = subunitary_matrix(variables["params"]["raw"], 1.5)
+    singular = jnp.linalg.svd(matrix, compute_uv=False)
+    target = insertion_loss_amplitude(1.5)
+    assert float(jnp.max(jnp.abs(singular - target))) < 1e-5
 
 
 def test_subunitary_supports_lower_bounded_loss():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(1.0, None))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(5), values)
-    loss_db = resolve_insertion_loss(variables["params"]["loss_raw"], (1.0, None))
-    assert float(loss_db) >= 1.0
+    matrix = subunitary_matrix(variables["params"]["raw"], (1.0, None))
+    singular = jnp.linalg.svd(matrix, compute_uv=False)
+    _, singular_max = insertion_loss_bounds((1.0, None))
+    assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
 
 
 def test_subunitary_supports_upper_bounded_loss():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(None, 2.0))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(6), values)
-    loss_db = resolve_insertion_loss(variables["params"]["loss_raw"], (None, 2.0))
-    assert 0.0 <= float(loss_db) <= 2.0
+    matrix = subunitary_matrix(variables["params"]["raw"], (None, 2.0))
+    singular = jnp.linalg.svd(matrix, compute_uv=False)
+    singular_min, _ = insertion_loss_bounds((None, 2.0))
+    assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
 
 
 def test_dense_layers_compose_with_readout():
