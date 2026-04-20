@@ -43,28 +43,41 @@ def insertion_loss_bounds(insertion_loss_db: LossSpec) -> tuple[jnp.ndarray, jnp
     return singular_min, singular_max
 
 
-def init_subunitary(key, width: int, init_scale: float = 1e-2) -> jnp.ndarray:
-    real_key, imag_key = random.split(key)
-    real = random.normal(real_key, (width, width), dtype=jnp.float32)
-    imag = random.normal(imag_key, (width, width), dtype=jnp.float32)
-    noise = init_scale * (real + 1j * imag)
-    return jnp.eye(width, dtype=jnp.complex64) + noise
-
-
-def project_subunitary(raw: jnp.ndarray, insertion_loss_db: LossSpec) -> jnp.ndarray:
+def project_subunitary_to_bounds(
+    raw: jnp.ndarray,
+    singular_min: float | jnp.ndarray,
+    singular_max: float | jnp.ndarray,
+) -> jnp.ndarray:
     left_vectors, singular_values, right_vectors = jnp.linalg.svd(raw, full_matrices=False)
-    singular_min, singular_max = insertion_loss_bounds(insertion_loss_db)
-    clipped = jnp.clip(singular_values, singular_min, singular_max)
+    clipped = jnp.clip(
+        singular_values,
+        jnp.asarray(singular_min, dtype=jnp.float32),
+        jnp.asarray(singular_max, dtype=jnp.float32),
+    )
     return (left_vectors * clipped[None, :]) @ right_vectors
 
 
-def subunitary_matrix(raw: jnp.ndarray, insertion_loss_db: LossSpec) -> jnp.ndarray:
-    return project_subunitary(raw, insertion_loss_db)
+def init_subunitary(
+    key,
+    out_features: int,
+    in_features: int,
+    init_scale: float = 1e-2,
+    insertion_loss_db: LossSpec = 0.0,
+) -> jnp.ndarray:
+    real_key, imag_key = random.split(key)
+    real = random.normal(real_key, (out_features, in_features), dtype=jnp.float32)
+    imag = random.normal(imag_key, (out_features, in_features), dtype=jnp.float32)
+    raw = init_scale * (real + 1j * imag)
+    singular_min, singular_max = insertion_loss_bounds(insertion_loss_db)
+    return project_subunitary_to_bounds(raw, singular_min, singular_max)
+
+
+def subunitary_matrix(raw: jnp.ndarray) -> jnp.ndarray:
+    return raw
 
 
 def subunitary_linear(
     values: jnp.ndarray,
     raw: jnp.ndarray,
-    insertion_loss_db: LossSpec,
 ) -> jnp.ndarray:
-    return values @ subunitary_matrix(raw, insertion_loss_db)
+    return values @ subunitary_matrix(raw).T

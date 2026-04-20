@@ -2,7 +2,12 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from lumix.functional.subunitary import insertion_loss_amplitude, insertion_loss_bounds, subunitary_matrix
+from lumix.functional.subunitary import (
+    insertion_loss_amplitude,
+    insertion_loss_bounds,
+    project_subunitary_to_bounds,
+    subunitary_matrix,
+)
 from lumix.functional.unitary import unitary_matrix
 from lumix.linen.readout import PowerReadout
 from lumix.linen.subunitary import SubUnitaryLinear
@@ -43,6 +48,14 @@ def test_subunitary_linear_forward_shape():
     assert probs.shape == (4, 10)
 
 
+def test_subunitary_linear_supports_rectangular_maps():
+    layer = SubUnitaryLinear(width=6, insertion_loss_db=(0.0, 3.0))
+    values = (jnp.ones((4, 8)) + 1j * jnp.ones((4, 8))).astype(jnp.complex64)
+    variables = layer.init(jax.random.key(11), values)
+    outputs = layer.apply(variables, values)
+    assert outputs.shape == (4, 6)
+
+
 def test_unitary_matrix_is_unitary():
     model = UnitaryLinear(width=8)
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
@@ -58,9 +71,11 @@ def test_subunitary_matrix_has_bounded_singular_values():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(0.5, 2.0))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(3), values)
-    matrix = subunitary_matrix(
-        variables["params"]["raw"],
-        (0.5, 2.0),
+    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
+    matrix = project_subunitary_to_bounds(
+        raw,
+        variables["params"]["singular_min"],
+        variables["params"]["singular_max"],
     )
     singular = jnp.linalg.svd(matrix, compute_uv=False)
     singular_min, singular_max = insertion_loss_bounds((0.5, 2.0))
@@ -72,7 +87,12 @@ def test_subunitary_fixed_loss_sets_exact_singular_values():
     model = SubUnitaryLinear(width=8, insertion_loss_db=1.5)
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(4), values)
-    matrix = subunitary_matrix(variables["params"]["raw"], 1.5)
+    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
+    matrix = project_subunitary_to_bounds(
+        raw,
+        variables["params"]["singular_min"],
+        variables["params"]["singular_max"],
+    )
     singular = jnp.linalg.svd(matrix, compute_uv=False)
     target = insertion_loss_amplitude(1.5)
     assert float(jnp.max(jnp.abs(singular - target))) < 1e-5
@@ -82,7 +102,12 @@ def test_subunitary_supports_lower_bounded_loss():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(1.0, None))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(5), values)
-    matrix = subunitary_matrix(variables["params"]["raw"], (1.0, None))
+    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
+    matrix = project_subunitary_to_bounds(
+        raw,
+        variables["params"]["singular_min"],
+        variables["params"]["singular_max"],
+    )
     singular = jnp.linalg.svd(matrix, compute_uv=False)
     _, singular_max = insertion_loss_bounds((1.0, None))
     assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
@@ -92,7 +117,12 @@ def test_subunitary_supports_upper_bounded_loss():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(None, 2.0))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(6), values)
-    matrix = subunitary_matrix(variables["params"]["raw"], (None, 2.0))
+    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
+    matrix = project_subunitary_to_bounds(
+        raw,
+        variables["params"]["singular_min"],
+        variables["params"]["singular_max"],
+    )
     singular = jnp.linalg.svd(matrix, compute_uv=False)
     singular_min, _ = insertion_loss_bounds((None, 2.0))
     assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
