@@ -1,7 +1,7 @@
 import optax
 from flax.training.train_state import TrainState
 
-from lumix.param_tree import freeze_tree, project_subunitary_params
+from lumix.param_tree import freeze_tree
 
 
 def create_state(module, rng, sample_x, learning_rate: float) -> TrainState:
@@ -16,6 +16,5 @@ def create_state(module, rng, sample_x, learning_rate: float) -> TrainState:
     return TrainState.create(apply_fn=apply_fn, params=params, tx=optimizer)
 
 
-def apply_gradients_and_project(state: TrainState, grads) -> TrainState:
-    next_state = state.apply_gradients(grads=freeze_tree(grads))
-    return next_state.replace(params=project_subunitary_params(next_state.params))
+def apply_gradients(state: TrainState, grads) -> TrainState:
+    return state.apply_gradients(grads=freeze_tree(grads))

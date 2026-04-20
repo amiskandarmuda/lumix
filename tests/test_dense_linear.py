@@ -3,11 +3,12 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from lumix.functional.subunitary import (
+    bounded_singular_values,
     insertion_loss_amplitude,
     insertion_loss_bounds,
-    project_subunitary_to_bounds,
+    subunitary_matrix,
 )
-from lumix.functional.unitary import unitary_matrix
+from lumix.functional.unitary import complex_matrix, semiunitary_matrix, unitary_matrix
 from lumix.linen.readout import LogitReadout, ProbabilityReadout
 from lumix.linen.subunitary import SubUnitaryLinear
 from lumix.linen.unitary import UnitaryLinear
@@ -60,22 +61,39 @@ def test_unitary_matrix_is_unitary():
     model = UnitaryLinear(width=8)
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(2), values)
-    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
-    matrix = unitary_matrix(raw)
+    params = variables["params"]
+    matrix = semiunitary_matrix(
+        complex_matrix(params["left_re"], params["left_im"]),
+        complex_matrix(params["right_re"], params["right_im"]),
+        8,
+        8,
+    )
     identity = jnp.eye(matrix.shape[0], dtype=matrix.dtype)
     error = jnp.linalg.norm(jnp.conj(matrix.T) @ matrix - identity)
     assert float(error) < 1e-4
+
+
+def test_unitary_linear_supports_rectangular_maps():
+    layer = UnitaryLinear(width=8, out_features=6)
+    values = (jnp.ones((4, 8)) + 1j * jnp.ones((4, 8))).astype(jnp.complex64)
+    variables = layer.init(jax.random.key(12), values)
+    outputs = layer.apply(variables, values)
+    assert outputs.shape == (4, 6)
 
 
 def test_subunitary_matrix_has_bounded_singular_values():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(0.5, 2.0))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(3), values)
-    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
-    matrix = project_subunitary_to_bounds(
-        raw,
+    params = variables["params"]
+    matrix = subunitary_matrix(
+        complex_matrix(params["left_re"], params["left_im"]),
+        complex_matrix(params["right_re"], params["right_im"]),
+        params["singular_raw"],
         variables["params"]["singular_min"],
         variables["params"]["singular_max"],
+        8,
+        8,
     )
     singular = jnp.linalg.svd(matrix, compute_uv=False)
     singular_min, singular_max = insertion_loss_bounds((0.5, 2.0))
@@ -87,13 +105,8 @@ def test_subunitary_fixed_loss_sets_exact_singular_values():
     model = SubUnitaryLinear(width=8, insertion_loss_db=1.5)
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(4), values)
-    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
-    matrix = project_subunitary_to_bounds(
-        raw,
-        variables["params"]["singular_min"],
-        variables["params"]["singular_max"],
-    )
-    singular = jnp.linalg.svd(matrix, compute_uv=False)
+    params = variables["params"]
+    singular = bounded_singular_values(params["singular_raw"], params["singular_min"], params["singular_max"])
     target = insertion_loss_amplitude(1.5)
     assert float(jnp.max(jnp.abs(singular - target))) < 1e-5
 
@@ -102,13 +115,8 @@ def test_subunitary_supports_lower_bounded_loss():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(1.0, None))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(5), values)
-    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
-    matrix = project_subunitary_to_bounds(
-        raw,
-        variables["params"]["singular_min"],
-        variables["params"]["singular_max"],
-    )
-    singular = jnp.linalg.svd(matrix, compute_uv=False)
+    params = variables["params"]
+    singular = bounded_singular_values(params["singular_raw"], params["singular_min"], params["singular_max"])
     _, singular_max = insertion_loss_bounds((1.0, None))
     assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
 
@@ -117,13 +125,8 @@ def test_subunitary_supports_upper_bounded_loss():
     model = SubUnitaryLinear(width=8, insertion_loss_db=(None, 2.0))
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(6), values)
-    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
-    matrix = project_subunitary_to_bounds(
-        raw,
-        variables["params"]["singular_min"],
-        variables["params"]["singular_max"],
-    )
-    singular = jnp.linalg.svd(matrix, compute_uv=False)
+    params = variables["params"]
+    singular = bounded_singular_values(params["singular_raw"], params["singular_min"], params["singular_max"])
     singular_min, _ = insertion_loss_bounds((None, 2.0))
     assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
 
@@ -160,8 +163,16 @@ def test_subunitary_train_step_preserves_passive_bounds():
 
     next_state, _, _ = train_step_logits(state, values, labels)
     params = next_state.params["SubUnitaryLinear_0"]
-    raw = params["raw_re"] + 1j * params["raw_im"]
-    singular = jnp.linalg.svd(raw, compute_uv=False)
+    matrix = subunitary_matrix(
+        complex_matrix(params["left_re"], params["left_im"]),
+        complex_matrix(params["right_re"], params["right_im"]),
+        params["singular_raw"],
+        params["singular_min"],
+        params["singular_max"],
+        10,
+        16,
+    )
+    singular = jnp.linalg.svd(matrix, compute_uv=False)
 
     singular_min, singular_max = insertion_loss_bounds((0.5, 2.0))
     assert float(jnp.max(singular)) <= float(singular_max) + 1e-5

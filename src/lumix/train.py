@@ -5,7 +5,7 @@ from flax.training.train_state import TrainState
 from lumix.batching import iterate_batches
 from lumix.losses import cross_entropy, cross_entropy_logits
 from lumix.metrics import accuracy
-from lumix.state import apply_gradients_and_project, create_state
+from lumix.state import apply_gradients, create_state
 
 
 def _run_prob_loss(params, state: TrainState, batch_x: jnp.ndarray, batch_y: jnp.ndarray):
@@ -21,7 +21,7 @@ def _run_logit_loss(params, state: TrainState, batch_x: jnp.ndarray, batch_y: jn
 @jax.jit
 def train_step(state: TrainState, batch_x: jnp.ndarray, batch_y: jnp.ndarray):
     (loss_value, probs), grads = jax.value_and_grad(_run_prob_loss, has_aux=True)(state.params, state, batch_x, batch_y)
-    next_state = apply_gradients_and_project(state, grads)
+    next_state = apply_gradients(state, grads)
     score = accuracy(batch_y, probs)
     return next_state, loss_value, score
 
@@ -29,7 +29,7 @@ def train_step(state: TrainState, batch_x: jnp.ndarray, batch_y: jnp.ndarray):
 @jax.jit
 def train_step_logits(state: TrainState, batch_x: jnp.ndarray, batch_y: jnp.ndarray):
     (loss_value, logits), grads = jax.value_and_grad(_run_logit_loss, has_aux=True)(state.params, state, batch_x, batch_y)
-    next_state = apply_gradients_and_project(state, grads)
+    next_state = apply_gradients(state, grads)
     score = accuracy(batch_y, logits)
     return next_state, loss_value, score
 

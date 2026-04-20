@@ -1,6 +1,9 @@
 from collections.abc import Sequence
 
+import jax
 import jax.numpy as jnp
+
+from lumix.functional.unitary import unitary_matrix
 
 
 LossBound = tuple[float | None, float | None]
@@ -49,22 +52,31 @@ def insertion_loss_bounds(insertion_loss_db: LossSpec) -> tuple[jnp.ndarray, jnp
     return singular_min, singular_max
 
 
-def project_subunitary_to_bounds(
-    raw: jnp.ndarray,
+def bounded_singular_values(
+    singular_raw: jnp.ndarray,
     singular_min: float | jnp.ndarray,
     singular_max: float | jnp.ndarray,
 ) -> jnp.ndarray:
-    left_vectors, singular_values, right_vectors = jnp.linalg.svd(raw, full_matrices=False)
-    clipped = jnp.clip(
-        singular_values,
-        jnp.asarray(singular_min, dtype=jnp.float32),
-        jnp.asarray(singular_max, dtype=jnp.float32),
-    )
-    return (left_vectors * clipped[None, :]) @ right_vectors
+    lower = jnp.asarray(singular_min, dtype=jnp.float32)
+    upper = jnp.asarray(singular_max, dtype=jnp.float32)
+    return lower + (upper - lower) * jax.nn.sigmoid(singular_raw)
 
 
-def subunitary_linear(
-    values: jnp.ndarray,
-    raw: jnp.ndarray,
+def subunitary_matrix(
+    left_raw: jnp.ndarray,
+    right_raw: jnp.ndarray,
+    singular_raw: jnp.ndarray,
+    singular_min: float | jnp.ndarray,
+    singular_max: float | jnp.ndarray,
+    output_features: int,
+    input_features: int,
 ) -> jnp.ndarray:
-    return values @ raw.T
+    rank = min(output_features, input_features)
+    left = unitary_matrix(left_raw)[:, :rank]
+    right = unitary_matrix(right_raw)[:, :rank]
+    singular_values = bounded_singular_values(singular_raw, singular_min, singular_max).astype(jnp.complex64)
+    return left @ jnp.diag(singular_values) @ jnp.conj(right).T
+
+
+def subunitary_linear(values: jnp.ndarray, matrix: jnp.ndarray) -> jnp.ndarray:
+    return values @ matrix.T
