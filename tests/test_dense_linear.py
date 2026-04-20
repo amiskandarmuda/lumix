@@ -6,12 +6,12 @@ from lumix.functional.subunitary import (
     insertion_loss_amplitude,
     insertion_loss_bounds,
     project_subunitary_to_bounds,
-    subunitary_matrix,
 )
 from lumix.functional.unitary import unitary_matrix
-from lumix.linen.readout import PowerReadout
+from lumix.linen.readout import LogitReadout, ProbabilityReadout
 from lumix.linen.subunitary import SubUnitaryLinear
 from lumix.linen.unitary import UnitaryLinear
+from lumix.train import create_state, train_step_logits
 
 
 class UnitaryNet(nn.Module):
@@ -20,7 +20,7 @@ class UnitaryNet(nn.Module):
     @nn.compact
     def __call__(self, values):
         values = UnitaryLinear(width=16)(values)
-        return PowerReadout(classes=self.classes)(values)
+        return ProbabilityReadout(classes=self.classes)(values)
 
 
 class SubUnitaryNet(nn.Module):
@@ -29,7 +29,7 @@ class SubUnitaryNet(nn.Module):
     @nn.compact
     def __call__(self, values):
         values = SubUnitaryLinear(width=16)(values)
-        return PowerReadout(classes=self.classes)(values)
+        return ProbabilityReadout(classes=self.classes)(values)
 
 
 def test_unitary_linear_forward_shape():
@@ -49,7 +49,7 @@ def test_subunitary_linear_forward_shape():
 
 
 def test_subunitary_linear_supports_rectangular_maps():
-    layer = SubUnitaryLinear(width=6, insertion_loss_db=(0.0, 3.0))
+    layer = SubUnitaryLinear(width=8, out_features=6, insertion_loss_db=(0.0, 3.0))
     values = (jnp.ones((4, 8)) + 1j * jnp.ones((4, 8))).astype(jnp.complex64)
     variables = layer.init(jax.random.key(11), values)
     outputs = layer.apply(variables, values)
@@ -60,7 +60,7 @@ def test_unitary_matrix_is_unitary():
     model = UnitaryLinear(width=8)
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(2), values)
-    raw = variables["params"]["raw"]
+    raw = variables["params"]["raw_re"] + 1j * variables["params"]["raw_im"]
     matrix = unitary_matrix(raw)
     identity = jnp.eye(matrix.shape[0], dtype=matrix.dtype)
     error = jnp.linalg.norm(jnp.conj(matrix.T) @ matrix - identity)
@@ -136,10 +136,48 @@ def test_dense_layers_compose_with_readout():
         def __call__(self, values):
             values = UnitaryLinear(width=16)(values)
             values = SubUnitaryLinear(width=16, insertion_loss_db=(0.5, 2.0))(values)
-            return PowerReadout(classes=self.classes)(values)
+            return ProbabilityReadout(classes=self.classes)(values)
 
     model = MixedNet()
     values = (jnp.ones((4, 16)) + 1j * jnp.ones((4, 16))).astype(jnp.complex64)
     variables = model.init(jax.random.key(7), values)
     probs = model.apply(variables, values)
     assert probs.shape == (4, 10)
+
+
+def test_subunitary_train_step_preserves_passive_bounds():
+    class LogitNet(nn.Module):
+        classes: int = 10
+
+        @nn.compact
+        def __call__(self, values):
+            values = SubUnitaryLinear(width=16, out_features=self.classes, insertion_loss_db=(0.5, 2.0))(values)
+            return jnp.real(jnp.conj(values) * values)
+
+    values = (jnp.ones((8, 16)) + 1j * jnp.ones((8, 16))).astype(jnp.complex64)
+    labels = jnp.eye(10, dtype=jnp.float32)[jnp.arange(8) % 10]
+    state = create_state(LogitNet(), jax.random.key(8), values, learning_rate=5e-3)
+
+    next_state, _, _ = train_step_logits(state, values, labels)
+    params = next_state.params["SubUnitaryLinear_0"]
+    raw = params["raw_re"] + 1j * params["raw_im"]
+    singular = jnp.linalg.svd(raw, compute_uv=False)
+
+    singular_min, singular_max = insertion_loss_bounds((0.5, 2.0))
+    assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
+    assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
+
+
+def test_probability_and_logit_readout_shapes():
+    values = (jnp.ones((4, 16)) + 1j * jnp.ones((4, 16))).astype(jnp.complex64)
+    prob_readout = ProbabilityReadout(classes=10)
+    logit_readout = LogitReadout(classes=10)
+
+    prob_variables = prob_readout.init(jax.random.key(9), values)
+    logit_variables = logit_readout.init(jax.random.key(10), values)
+
+    probs = prob_readout.apply(prob_variables, values)
+    logits = logit_readout.apply(logit_variables, values)
+
+    assert probs.shape == (4, 10)
+    assert logits.shape == (4, 10)

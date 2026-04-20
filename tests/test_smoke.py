@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from lumix.linen.clements import ClementsLinear
-from lumix.linen.readout import PowerReadout
+from lumix.linen.readout import ProbabilityReadout
 from lumix.linen.williamson import WilliamsonNonlinearity
 
 
@@ -15,7 +15,7 @@ class SmokeNet(nn.Module):
         values = ClementsLinear(width=16)(values)
         values = WilliamsonNonlinearity()(values)
         values = ClementsLinear(width=16)(values)
-        return PowerReadout(classes=self.classes)(values)
+        return ProbabilityReadout(classes=self.classes)(values)
 
 
 def test_smoke_forward_shape():

@@ -1,6 +1,6 @@
 from lumix.data import DataSplit, load_mnist_fourier
 from lumix.linen.clements import ClementsLinear
-from lumix.linen.readout import IntensityLogitsReadout, PowerReadout
+from lumix.linen.readout import LogitReadout, ProbabilityReadout
 from lumix.linen.subunitary import SubUnitaryLinear
 from lumix.linen.unitary import UnitaryLinear
 from lumix.linen.williamson import WilliamsonNonlinearity
@@ -10,10 +10,10 @@ from lumix.train import create_state, eval_step, eval_step_logits, fit, fit_logi
 __all__ = [
     "ClementsLinear",
     "DataSplit",
-    "IntensityLogitsReadout",
+    "LogitReadout",
     "MeshSpec",
     "NonlinearitySpec",
-    "PowerReadout",
+    "ProbabilityReadout",
     "SubUnitaryLinear",
     "TrainSpec",
     "UnitaryLinear",

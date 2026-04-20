@@ -1,19 +1,19 @@
 from flax import linen as nn
 
-from lumix.functional.readout import channel_power, class_logits, class_probs
+from lumix.functional.readout import class_logits, class_probs, intensity
 
 
-class PowerReadout(nn.Module):
+class ProbabilityReadout(nn.Module):
     classes: int = 10
 
     @nn.compact
     def __call__(self, values):
-        return class_probs(channel_power(values), self.classes)
+        return class_probs(intensity(values), self.classes)
 
 
-class IntensityLogitsReadout(nn.Module):
+class LogitReadout(nn.Module):
     classes: int = 10
 
     @nn.compact
     def __call__(self, values):
-        return class_logits(channel_power(values), self.classes)
+        return class_logits(intensity(values), self.classes)

@@ -1,6 +1,8 @@
+import jax.numpy as jnp
+from jax import random
 from flax import linen as nn
 
-from lumix.functional.unitary import init_unitary, unitary_linear
+from lumix.functional.unitary import unitary_linear
 
 
 class UnitaryLinear(nn.Module):
@@ -9,8 +11,13 @@ class UnitaryLinear(nn.Module):
 
     @nn.compact
     def __call__(self, values):
-        raw = self.param(
-            "raw",
-            lambda key: init_unitary(key, self.width, init_scale=self.init_scale),
+        raw_re = self.param(
+            "raw_re",
+            lambda key: self.init_scale * random.normal(key, (self.width, self.width), dtype=jnp.float32),
         )
+        raw_im = self.param(
+            "raw_im",
+            lambda key: self.init_scale * random.normal(key, (self.width, self.width), dtype=jnp.float32),
+        )
+        raw = raw_re + 1j * raw_im
         return unitary_linear(values, raw)
