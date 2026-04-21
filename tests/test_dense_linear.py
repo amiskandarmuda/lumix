@@ -3,12 +3,12 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from lumix.functional.subunitary import (
-    bounded_singular_values,
     insertion_loss_amplitude,
     insertion_loss_bounds,
+    singular_values_in_bounds,
     subunitary_matrix,
 )
-from lumix.functional.unitary import complex_matrix, semiunitary_matrix, unitary_matrix
+from lumix.functional.unitary import combine_complex_parts, isometric_matrix
 from lumix.linen.readout import LogitReadout, ProbabilityReadout
 from lumix.linen.subunitary import SubUnitaryLinear
 from lumix.linen.unitary import UnitaryLinear
@@ -62,9 +62,9 @@ def test_unitary_matrix_is_unitary():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(2), values)
     params = variables["params"]
-    matrix = semiunitary_matrix(
-        complex_matrix(params["left_re"], params["left_im"]),
-        complex_matrix(params["right_re"], params["right_im"]),
+    matrix = isometric_matrix(
+        combine_complex_parts(params["left_re"], params["left_im"]),
+        combine_complex_parts(params["right_re"], params["right_im"]),
         8,
         8,
     )
@@ -87,8 +87,8 @@ def test_subunitary_matrix_has_bounded_singular_values():
     variables = model.init(jax.random.key(3), values)
     params = variables["params"]
     matrix = subunitary_matrix(
-        complex_matrix(params["left_re"], params["left_im"]),
-        complex_matrix(params["right_re"], params["right_im"]),
+        combine_complex_parts(params["left_re"], params["left_im"]),
+        combine_complex_parts(params["right_re"], params["right_im"]),
         params["singular_raw"],
         variables["params"]["singular_min"],
         variables["params"]["singular_max"],
@@ -106,7 +106,7 @@ def test_subunitary_fixed_loss_sets_exact_singular_values():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(4), values)
     params = variables["params"]
-    singular = bounded_singular_values(params["singular_raw"], params["singular_min"], params["singular_max"])
+    singular = singular_values_in_bounds(params["singular_raw"], params["singular_min"], params["singular_max"])
     target = insertion_loss_amplitude(1.5)
     assert float(jnp.max(jnp.abs(singular - target))) < 1e-5
 
@@ -116,7 +116,7 @@ def test_subunitary_supports_lower_bounded_loss():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(5), values)
     params = variables["params"]
-    singular = bounded_singular_values(params["singular_raw"], params["singular_min"], params["singular_max"])
+    singular = singular_values_in_bounds(params["singular_raw"], params["singular_min"], params["singular_max"])
     _, singular_max = insertion_loss_bounds((1.0, None))
     assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
 
@@ -126,7 +126,7 @@ def test_subunitary_supports_upper_bounded_loss():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(6), values)
     params = variables["params"]
-    singular = bounded_singular_values(params["singular_raw"], params["singular_min"], params["singular_max"])
+    singular = singular_values_in_bounds(params["singular_raw"], params["singular_min"], params["singular_max"])
     singular_min, _ = insertion_loss_bounds((None, 2.0))
     assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
 
@@ -164,8 +164,8 @@ def test_subunitary_train_step_preserves_passive_bounds():
     next_state, _, _ = train_step_logits(state, values, labels)
     params = next_state.params["SubUnitaryLinear_0"]
     matrix = subunitary_matrix(
-        complex_matrix(params["left_re"], params["left_im"]),
-        complex_matrix(params["right_re"], params["right_im"]),
+        combine_complex_parts(params["left_re"], params["left_im"]),
+        combine_complex_parts(params["right_re"], params["right_im"]),
         params["singular_raw"],
         params["singular_min"],
         params["singular_max"],

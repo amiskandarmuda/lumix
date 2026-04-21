@@ -1,13 +1,13 @@
 import optax
 from flax.training.train_state import TrainState
 
-from lumix.param_tree import freeze_tree
+from lumix.params import freeze_params
 
 
 def create_state(module, rng, sample_x, learning_rate: float) -> TrainState:
     variables = module.init(rng, sample_x)
     constants = {name: value for name, value in variables.items() if name != "params"}
-    params = freeze_tree(variables["params"])
+    params = freeze_params(variables["params"])
     optimizer = optax.adam(learning_rate)
 
     def apply_fn(variable_dict, batch_x):
@@ -17,4 +17,4 @@ def create_state(module, rng, sample_x, learning_rate: float) -> TrainState:
 
 
 def apply_gradients(state: TrainState, grads) -> TrainState:
-    return state.apply_gradients(grads=freeze_tree(grads))
+    return state.apply_gradients(grads=freeze_params(grads))

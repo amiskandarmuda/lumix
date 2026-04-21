@@ -52,7 +52,7 @@ def insertion_loss_bounds(insertion_loss_db: LossSpec) -> tuple[jnp.ndarray, jnp
     return singular_min, singular_max
 
 
-def bounded_singular_values(
+def singular_values_in_bounds(
     singular_raw: jnp.ndarray,
     singular_min: float | jnp.ndarray,
     singular_max: float | jnp.ndarray,
@@ -74,7 +74,7 @@ def subunitary_matrix(
     rank = min(output_features, input_features)
     left = unitary_matrix(left_raw)[:, :rank]
     right = unitary_matrix(right_raw)[:, :rank]
-    singular_values = bounded_singular_values(singular_raw, singular_min, singular_max).astype(jnp.complex64)
+    singular_values = singular_values_in_bounds(singular_raw, singular_min, singular_max).astype(jnp.complex64)
     return left @ jnp.diag(singular_values) @ jnp.conj(right).T
 
 
