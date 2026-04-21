@@ -13,6 +13,13 @@ from lumix.functional.subunitary import (
     subunitary_matrix,
 )
 from lumix.functional.unitary import combine_complex_parts, isometric_matrix, unitary_linear, unitary_matrix
+from lumix.functional.waveguide import (
+    symmetric_delta_profile,
+    symmetric_kappa_profile,
+    waveguide_hamiltonian,
+    waveguide_linear,
+    waveguide_propagator,
+)
 from lumix.functional.williamson import williamson_response
 
 __all__ = [
@@ -28,7 +35,12 @@ __all__ = [
     "singular_values_in_bounds",
     "subunitary_linear",
     "subunitary_matrix",
+    "symmetric_delta_profile",
+    "symmetric_kappa_profile",
     "unitary_linear",
     "unitary_matrix",
+    "waveguide_hamiltonian",
+    "waveguide_linear",
+    "waveguide_propagator",
     "williamson_response",
 ]

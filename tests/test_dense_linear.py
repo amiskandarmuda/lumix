@@ -1,7 +1,9 @@
 import jax
 import jax.numpy as jnp
+import pytest
 from flax import linen as nn
 
+from lumix.functional.readout import intensity
 from lumix.functional.subunitary import (
     insertion_loss_amplitude,
     insertion_loss_bounds,
@@ -9,7 +11,7 @@ from lumix.functional.subunitary import (
     subunitary_matrix,
 )
 from lumix.functional.unitary import combine_complex_parts, isometric_matrix
-from lumix.linen.readout import LogitReadout, ProbabilityReadout
+from lumix.linen.readout import IntensityReadout, LogitReadout, ProbabilityReadout
 from lumix.linen.subunitary import SubUnitaryLinear
 from lumix.linen.unitary import UnitaryLinear
 from lumix.train import create_state, train_step_logits
@@ -192,3 +194,97 @@ def test_probability_and_logit_readout_shapes():
 
     assert probs.shape == (4, 10)
     assert logits.shape == (4, 10)
+
+
+def test_intensity_readout_without_projection_matches_raw_intensity():
+    values = (jnp.ones((4, 16)) + 2j * jnp.ones((4, 16))).astype(jnp.complex64)
+    readout = IntensityReadout()
+
+    variables = readout.init(jax.random.key(14), values)
+    outputs = readout.apply(variables, values)
+
+    assert "params" not in variables
+    assert outputs.shape == (4, 16)
+    assert jnp.allclose(outputs, intensity(values))
+    assert outputs.dtype == jnp.float32
+
+
+def test_intensity_readout_projects_to_requested_width():
+    values = (jnp.ones((2, 256)) + 1j * jnp.ones((2, 256))).astype(jnp.complex64)
+    readout = IntensityReadout(out_features=784)
+
+    variables = readout.init(jax.random.key(15), values)
+    outputs = readout.apply(variables, values)
+
+    assert variables["params"]["Dense_0"]["kernel"].shape == (256, 784)
+    assert outputs.shape == (2, 784)
+
+
+def test_intensity_readout_sigmoid_constrains_output_range():
+    values = (jnp.ones((2, 32)) + 1j * jnp.ones((2, 32))).astype(jnp.complex64)
+    readout = IntensityReadout(out_features=64, activation="sigmoid")
+
+    variables = readout.init(jax.random.key(16), values)
+    outputs = readout.apply(variables, values)
+
+    assert outputs.shape == (2, 64)
+    assert float(jnp.min(outputs)) >= 0.0
+    assert float(jnp.max(outputs)) <= 1.0
+
+
+def test_intensity_readout_softmax_normalizes_last_axis():
+    values = (jnp.ones((2, 32)) + 1j * jnp.ones((2, 32))).astype(jnp.complex64)
+    readout = IntensityReadout(out_features=16, activation="softmax")
+
+    variables = readout.init(jax.random.key(17), values)
+    outputs = readout.apply(variables, values)
+
+    assert outputs.shape == (2, 16)
+    assert jnp.allclose(jnp.sum(outputs, axis=-1), jnp.ones((2,), dtype=outputs.dtype), atol=1e-6)
+
+
+def test_intensity_readout_reshapes_output():
+    values = (jnp.ones((2, 256)) + 1j * jnp.ones((2, 256))).astype(jnp.complex64)
+    readout = IntensityReadout(out_features=784, activation="sigmoid", output_shape=(28, 28))
+
+    variables = readout.init(jax.random.key(18), values)
+    outputs = readout.apply(variables, values)
+
+    assert outputs.shape == (2, 28, 28)
+    assert float(jnp.min(outputs)) >= 0.0
+    assert float(jnp.max(outputs)) <= 1.0
+
+
+def test_intensity_readout_rejects_invalid_activation():
+    values = (jnp.ones((1, 8)) + 1j * jnp.ones((1, 8))).astype(jnp.complex64)
+    readout = IntensityReadout(activation="tanh")
+
+    with pytest.raises(ValueError, match="activation must be one of None, 'sigmoid', or 'softmax'"):
+        readout.init(jax.random.key(19), values)
+
+
+def test_intensity_readout_rejects_mismatched_output_shape():
+    values = (jnp.ones((1, 16)) + 1j * jnp.ones((1, 16))).astype(jnp.complex64)
+    readout = IntensityReadout(out_features=20, output_shape=(3, 7))
+
+    with pytest.raises(ValueError, match="output_shape product must match the effective output width"):
+        readout.init(jax.random.key(20), values)
+
+
+def test_optical_stack_can_end_with_intensity_readout():
+    class GeneratorTail(nn.Module):
+        @nn.compact
+        def __call__(self, values):
+            values = UnitaryLinear(width=256)(values)
+            values = SubUnitaryLinear(width=256, insertion_loss_db=(0.5, 2.0))(values)
+            return IntensityReadout(out_features=784, activation="sigmoid", output_shape=(28, 28))(values)
+
+    model = GeneratorTail()
+    values = (jnp.ones((2, 256)) + 1j * jnp.ones((2, 256))).astype(jnp.complex64)
+
+    variables = model.init(jax.random.key(21), values)
+    outputs = model.apply(variables, values)
+
+    assert outputs.shape == (2, 28, 28)
+    assert float(jnp.min(outputs)) >= 0.0
+    assert float(jnp.max(outputs)) <= 1.0
