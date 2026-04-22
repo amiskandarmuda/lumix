@@ -30,14 +30,10 @@ def grid_permutation(width: int, depth: int) -> jnp.ndarray:
 
 def stripe_layout(phase: jnp.ndarray, width: int) -> jnp.ndarray:
     depth = phase.shape[0]
-    stripe_pairs = jnp.stack(
-        (phase.T, jnp.zeros_like(phase.T)),
-        axis=1,
-    ).reshape((-1, depth))
-    if width % 2:
-        tail = jnp.zeros((1, depth), dtype=phase.dtype)
-        return jnp.concatenate((stripe_pairs, tail), axis=0)
-    return stripe_pairs
+    stripe = jnp.zeros((width - 1, depth), dtype=phase.dtype)
+    stripe = stripe.at[::2, :].set(phase.T)
+    tail = jnp.zeros((1, depth), dtype=phase.dtype)
+    return jnp.vstack((stripe, tail))
 
 
 def differential_layout(phase: jnp.ndarray, width: int) -> jnp.ndarray:
@@ -164,18 +160,13 @@ def sample_theta(key, width: int, depth: int, hadamard: bool = False) -> jnp.nda
     if not hadamard:
         even_theta = jnp.pi - even_theta
         odd_theta = jnp.pi - odd_theta
-    even_theta = even_theta.astype(jnp.float32)
-    odd_theta = odd_theta.astype(jnp.float32)
-    even_rows = even_theta.shape[0]
+    theta = jnp.zeros((depth, width // 2), dtype=jnp.float32)
+    theta = theta.at[::2, :].set(even_theta.astype(jnp.float32))
     if width % 2:
-        odd_theta = jnp.pad(odd_theta, ((0, even_rows - odd_theta.shape[0]), (0, 0)))
+        theta = theta.at[1::2, :].set(odd_theta.astype(jnp.float32))
     else:
-        odd_theta = jnp.pad(
-            odd_theta,
-            ((0, even_rows - odd_theta.shape[0]), (0, 1)),
-        )
-    theta = jnp.stack((even_theta, odd_theta), axis=1).reshape((-1, width // 2))
-    return theta[:depth]
+        theta = theta.at[1::2, :-1].set(odd_theta.astype(jnp.float32))
+    return theta
 
 
 def sample_phi(key, width: int, depth: int) -> jnp.ndarray:
@@ -303,8 +294,6 @@ def apply_pair_coefficients(
     odd = values[..., 1::2]
     next_even = even * u11 + odd * u21
     next_odd = even * u12 + odd * u22
-    if values.shape[-1] % 2 == 0:
-        return jnp.stack((next_even, next_odd), axis=-1).reshape(values.shape)
     next_values = jnp.empty_like(values)
     next_values = next_values.at[..., 0::2].set(next_even)
     next_values = next_values.at[..., 1::2].set(next_odd)
