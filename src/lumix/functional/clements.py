@@ -216,17 +216,22 @@ def clements_pair(
     hadamard: bool = False,
 ) -> jnp.ndarray:
     mesh_spec = build_clements_spec(values.shape[-1], theta.shape[0]) if spec is None else spec
-    theta_masked, phi_masked = mask_phases(theta, phi, mesh_spec.mask, hadamard=hadamard)
-    internal = differential_layout(theta_masked, mesh_spec.width)
-    output = stripe_layout(phi_masked, mesh_spec.width)
+    perm = mesh_spec.perm
+    mask = mesh_spec.mask
+    width = perm.shape[-1]
+    depth = theta.shape[0]
+
+    theta_masked, phi_masked = mask_phases(theta, phi, mask, hadamard=hadamard)
+    internal = differential_layout(theta_masked, width)
+    output = stripe_layout(phi_masked, width)
     next_values = values * jnp.exp(1j * gamma)
-    next_values = next_values[..., mesh_spec.perm[0]]
-    for layer_index in range(mesh_spec.depth):
+    next_values = next_values[..., perm[0]]
+    for layer_index in range(depth):
         next_values = apply_pair_layer(
             next_values,
             internal[:, layer_index],
             output[:, layer_index],
             hadamard=hadamard,
         )
-        next_values = next_values[..., mesh_spec.perm[layer_index + 1]]
+        next_values = next_values[..., perm[layer_index + 1]]
     return next_values

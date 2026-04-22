@@ -24,3 +24,16 @@ def test_smoke_forward_shape():
     variables = model.init(jax.random.key(0), values)
     probs = model.apply(variables, values)
     assert probs.shape == (4, 10)
+
+
+def test_clements_apply_is_jittable_with_runtime_variables():
+    model = SmokeNet()
+    values = (jnp.ones((4, 16)) + 1j * jnp.ones((4, 16))).astype(jnp.complex64)
+    variables = model.init(jax.random.key(1), values)
+
+    @jax.jit
+    def apply_fn(runtime_variables, runtime_values):
+        return model.apply(runtime_variables, runtime_values)
+
+    probs = apply_fn(variables, values)
+    assert probs.shape == (4, 10)

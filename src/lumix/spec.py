@@ -5,8 +5,8 @@ from flax import struct
 
 @struct.dataclass
 class ClementsSpec:
-    width: int
-    depth: int
+    width: int = struct.field(pytree_node=False)
+    depth: int = struct.field(pytree_node=False)
     perm: object
     mask: object
 
