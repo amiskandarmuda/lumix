@@ -1,8 +1,5 @@
-from functools import lru_cache
-
 import jax.numpy as jnp
-import numpy as np
-from jax import lax, random
+from jax import random
 
 from lumix.spec import ClementsSpec
 
@@ -91,63 +88,8 @@ def alpha_checkerboard_stack(width: int, depth: int) -> jnp.ndarray:
     return jnp.hstack(blocks) if blocks else jnp.zeros((width - 1, 0), dtype=jnp.float32)
 
 
-def _haar_diagonal_sequence_np(diagonal_length: int, reverse: bool = False) -> np.ndarray:
-    odd_values = diagonal_length + 1 - np.flip(np.arange(1, diagonal_length + 1, 2), axis=0)
-    even_stop = 2 * (diagonal_length - odd_values.shape[0]) + 1
-    even_values = diagonal_length + 1 - np.arange(2, even_stop, 2)
-    values = np.concatenate((odd_values, even_values)).astype(np.float32, copy=False)
-    return values[::-1] if reverse else values
-
-
-def _alpha_checkerboard_np(width: int, depth: int) -> np.ndarray:
-    if width < depth:
-        raise ValueError("width must be at least depth")
-    board = np.zeros((width - 1, depth), dtype=np.float32)
-    sequences = [
-        _haar_diagonal_sequence_np(index, reverse=bool(depth % 2))
-        for index in range(1, depth + 1)
-    ]
-    equal_sides = int(width == depth)
-    for row in range(width - 1):
-        for column in range(depth):
-            if (row + column) % 2 != 0:
-                continue
-            if row < depth and column > row:
-                diagonal = depth - abs(row - column)
-            elif row > width - depth and column < row - width + depth:
-                diagonal = depth - abs(row - column - width + depth) - equal_sides
-            else:
-                diagonal = depth - equal_sides
-            if diagonal == 1:
-                value = np.float32(1.0)
-            else:
-                value = np.float32(sequences[diagonal - 1][min(row, column)])
-            board[row, column] = value
-    if width != depth:
-        board = (board + np.flipud(board)) / 2.0
-    return board.astype(np.float32, copy=False)
-
-
-@lru_cache(maxsize=None)
-def _alpha_checkerboard_stack_cached(width: int, depth: int) -> np.ndarray:
-    blocks = []
-    full_blocks = depth // width
-    square_block = _alpha_checkerboard_np(width, width)
-    for block_index in range(full_blocks):
-        flip = bool(block_index % 2 and width % 2)
-        blocks.append(np.flipud(square_block) if flip else square_block)
-    extra_depth = depth - full_blocks * width
-    if extra_depth:
-        flip = bool((full_blocks % 2 == 0) and width % 2)
-        block = _alpha_checkerboard_np(width, extra_depth)
-        blocks.append(np.flipud(block) if flip else block)
-    if not blocks:
-        return np.zeros((width - 1, 0), dtype=np.float32)
-    return np.hstack(blocks).astype(np.float32, copy=False)
-
-
 def sample_theta(key, width: int, depth: int, hadamard: bool = False) -> jnp.ndarray:
-    roots = jnp.asarray(_alpha_checkerboard_stack_cached(width, depth)).T
+    roots = alpha_checkerboard_stack(width, depth).T
     even_roots = 2.0 * roots[::2, ::2]
     odd_roots = 2.0 * roots[1::2, 1::2]
     even_shape = even_roots.shape
@@ -283,21 +225,13 @@ def clements_pair(
     internal = differential_layout(theta_masked, width)
     output = stripe_layout(phi_masked, width)
     next_values = values * jnp.exp(1j * gamma)
-    next_values = jnp.take(next_values, perm[0], axis=-1)
-
-    def apply_layer(carry: jnp.ndarray, layer_inputs: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]):
-        internal_layer, output_layer, permutation = layer_inputs
-        updated = apply_pair_layer(
-            carry,
-            internal_layer,
-            output_layer,
+    next_values = next_values[..., perm[0]]
+    for layer_index in range(depth):
+        next_values = apply_pair_layer(
+            next_values,
+            internal[:, layer_index],
+            output[:, layer_index],
             hadamard=hadamard,
         )
-        return jnp.take(updated, permutation, axis=-1), None
-
-    next_values, _ = lax.scan(
-        apply_layer,
-        next_values,
-        xs=(internal.T, output.T, perm[1 : depth + 1]),
-    )
+        next_values = next_values[..., perm[layer_index + 1]]
     return next_values
