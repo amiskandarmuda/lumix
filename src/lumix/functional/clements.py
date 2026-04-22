@@ -238,6 +238,24 @@ def pair_coefficients(
     )
 
 
+def pair_coefficients_layout(
+    internal: jnp.ndarray,
+    output: jnp.ndarray,
+    hadamard: bool = False,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    upper = internal[0::2, :]
+    lower = internal[1::2, :]
+    output_upper = output[0::2, :]
+    output_lower = output[1::2, :]
+    return pair_coefficients(
+        upper,
+        lower,
+        output_upper,
+        output_lower,
+        hadamard=hadamard,
+    )
+
+
 def apply_pair_layer(
     values: jnp.ndarray,
     internal: jnp.ndarray,
@@ -265,6 +283,23 @@ def apply_pair_layer(
     return next_values
 
 
+def apply_pair_coefficients(
+    values: jnp.ndarray,
+    u11: jnp.ndarray,
+    u12: jnp.ndarray,
+    u21: jnp.ndarray,
+    u22: jnp.ndarray,
+) -> jnp.ndarray:
+    even = values[..., 0::2]
+    odd = values[..., 1::2]
+    next_even = even * u11 + odd * u21
+    next_odd = even * u12 + odd * u22
+    next_values = jnp.empty_like(values)
+    next_values = next_values.at[..., 0::2].set(next_even)
+    next_values = next_values.at[..., 1::2].set(next_odd)
+    return next_values
+
+
 def clements_pair(
     values: jnp.ndarray,
     theta: jnp.ndarray,
@@ -282,22 +317,28 @@ def clements_pair(
     theta_masked, phi_masked = mask_phases(theta, phi, mask, hadamard=hadamard)
     internal = differential_layout(theta_masked, width)
     output = stripe_layout(phi_masked, width)
+    u11, u12, u21, u22 = pair_coefficients_layout(
+        internal,
+        output,
+        hadamard=hadamard,
+    )
     next_values = values * jnp.exp(1j * gamma)
     next_values = jnp.take(next_values, perm[0], axis=-1)
 
-    def apply_layer(carry: jnp.ndarray, layer_inputs: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]):
-        internal_layer, output_layer, permutation = layer_inputs
-        updated = apply_pair_layer(
+    def apply_layer(carry: jnp.ndarray, layer_inputs: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]):
+        u11_layer, u12_layer, u21_layer, u22_layer, permutation = layer_inputs
+        updated = apply_pair_coefficients(
             carry,
-            internal_layer,
-            output_layer,
-            hadamard=hadamard,
+            u11_layer,
+            u12_layer,
+            u21_layer,
+            u22_layer,
         )
         return jnp.take(updated, permutation, axis=-1), None
 
     next_values, _ = lax.scan(
         apply_layer,
         next_values,
-        xs=(internal.T, output.T, perm[1 : depth + 1]),
+        xs=(u11.T, u12.T, u21.T, u22.T, perm[1 : depth + 1]),
     )
     return next_values
