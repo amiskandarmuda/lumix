@@ -28,6 +28,15 @@ def grid_permutation(width: int, depth: int) -> jnp.ndarray:
     return jnp.vstack((ordered[None, :], permuted))
 
 
+def grid_shift_sequence(depth: int) -> jnp.ndarray:
+    shifts = jnp.zeros((depth + 1,), dtype=jnp.int32)
+    shifts = shifts.at[1 : depth + 1 : 2].set(-1)
+    shifts = shifts.at[2 : depth + 1 : 2].set(1)
+    if depth % 2:
+        shifts = shifts.at[-1].set(0)
+    return shifts
+
+
 def stripe_layout(phase: jnp.ndarray, width: int) -> jnp.ndarray:
     depth = phase.shape[0]
     stripe_pairs = jnp.stack(
@@ -320,10 +329,10 @@ def clements_pair(
     hadamard: bool = False,
 ) -> jnp.ndarray:
     mesh_spec = build_clements_spec(values.shape[-1], theta.shape[0]) if spec is None else spec
-    perm = mesh_spec.perm
     mask = mesh_spec.mask
-    width = perm.shape[-1]
+    width = values.shape[-1]
     depth = theta.shape[0]
+    shifts = grid_shift_sequence(depth)
 
     theta_masked, phi_masked = mask_phases(theta, phi, mask, hadamard=hadamard)
     internal = differential_layout(theta_masked, width)
@@ -334,10 +343,9 @@ def clements_pair(
         hadamard=hadamard,
     )
     next_values = values * jnp.exp(1j * gamma)
-    next_values = jnp.take(next_values, perm[0], axis=-1)
 
     def apply_layer(carry: jnp.ndarray, layer_inputs: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]):
-        u11_layer, u12_layer, u21_layer, u22_layer, permutation = layer_inputs
+        u11_layer, u12_layer, u21_layer, u22_layer, shift = layer_inputs
         updated = apply_pair_coefficients(
             carry,
             u11_layer,
@@ -345,11 +353,11 @@ def clements_pair(
             u21_layer,
             u22_layer,
         )
-        return jnp.take(updated, permutation, axis=-1), None
+        return jnp.roll(updated, shift, axis=-1), None
 
     next_values, _ = lax.scan(
         apply_layer,
         next_values,
-        xs=(u11.T, u12.T, u21.T, u22.T, perm[1 : depth + 1]),
+        xs=(u11.T, u12.T, u21.T, u22.T, shifts[1 : depth + 1]),
     )
     return next_values
