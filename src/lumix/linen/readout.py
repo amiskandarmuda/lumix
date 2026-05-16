@@ -1,6 +1,9 @@
 import math
 
 from flax import linen as nn
+from flax.linen.dtypes import promote_dtype
+from flax.typing import Dtype, Initializer
+import jax.numpy as jnp
 
 from lumix.functional.readout import class_logits, class_probs, intensity
 
@@ -62,3 +65,30 @@ class LogitReadout(nn.Module):
     @nn.compact
     def __call__(self, values):
         return class_logits(intensity(values), self.classes)
+
+
+class RidgeReadout(nn.Module):
+    features: int
+    use_bias: bool = True
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+    kernel_init: Initializer = nn.initializers.lecun_normal()
+    bias_init: Initializer = nn.initializers.zeros
+
+    @nn.compact
+    def __call__(self, values):
+        kernel = self.param(
+            "kernel",
+            self.kernel_init,
+            (values.shape[-1], self.features),
+            self.param_dtype,
+        )
+        bias = None
+        if self.use_bias:
+            bias = self.param("bias", self.bias_init, (self.features,), self.param_dtype)
+
+        values, kernel, bias = promote_dtype(values, kernel, bias, dtype=self.dtype)
+        outputs = jnp.matmul(values, kernel)
+        if bias is not None:
+            outputs = outputs + bias
+        return outputs

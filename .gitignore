@@ -5,3 +5,5 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+notebooks/repeated_encoding_tutorials/cache/
+notebooks/repeated_encoding_tutorials/data/
