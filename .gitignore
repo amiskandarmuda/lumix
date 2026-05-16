@@ -2,8 +2,11 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+.DS_Store
 dist/
 build/
 *.egg-info/
+artifacts/
+data/
 notebooks/repeated_encoding_tutorials/cache/
 notebooks/repeated_encoding_tutorials/data/
