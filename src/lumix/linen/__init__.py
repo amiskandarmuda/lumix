@@ -6,7 +6,14 @@ from lumix.linen.blocks import (
 )
 from lumix.linen.clements import ClementsLinear
 from lumix.linen.encoding import InformationEncoder
-from lumix.linen.readout import IntensityReadout, LogitReadout, ProbabilityReadout, RidgeReadout
+from lumix.linen.readout import (
+    CoherentIQReadout,
+    IntensityReadout,
+    LogitReadout,
+    ProbabilityReadout,
+    RidgeReadout,
+)
+from lumix.linen.spm import SPMNonlinearity
 from lumix.linen.subunitary import SubUnitaryLinear
 from lumix.linen.unitary import UnitaryLinear
 from lumix.linen.waveguide import FixedWaveguideArray
@@ -18,12 +25,14 @@ __all__ = [
     "BlockParallelSubUnitary",
     "BlockParallelUnitary",
     "ClementsLinear",
+    "CoherentIQReadout",
     "FixedWaveguideArray",
     "InformationEncoder",
     "IntensityReadout",
     "LogitReadout",
     "ProbabilityReadout",
     "RidgeReadout",
+    "SPMNonlinearity",
     "SubUnitaryLinear",
     "UnitaryLinear",
     "WilliamsonNonlinearity",

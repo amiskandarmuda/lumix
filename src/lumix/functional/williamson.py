@@ -2,6 +2,27 @@ import jax
 import jax.numpy as jnp
 
 
+def electro_optic_phase_parameters(
+    tap: float | jnp.ndarray = 0.1,
+    responsivity: float | jnp.ndarray = 0.8,
+    area: float | jnp.ndarray = 1.0,
+    v_pi: float | jnp.ndarray = 10.0,
+    v_bias: float | jnp.ndarray = 10.0,
+    resistance: float | jnp.ndarray = 1e3,
+    impedance: float | jnp.ndarray = 120.0 * jnp.pi,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return Neuroptica electro-optic activation phase gain and bias.
+
+    This maps the physical parameters from fancompute/neuroptica's
+    ``ElectroOpticActivation`` to the direct Williamson response parameters:
+    ``gain`` and ``bias``.
+    """
+
+    gain = jnp.pi * tap * resistance * responsivity * area * 1e-12 / (2.0 * v_pi * impedance)
+    bias = jnp.pi * v_bias / v_pi
+    return jnp.asarray(gain, dtype=jnp.float32), jnp.asarray(bias, dtype=jnp.float32)
+
+
 @jax.custom_jvp
 def williamson_response(
     values: jnp.ndarray,

@@ -5,7 +5,8 @@ from flax.linen.dtypes import promote_dtype
 from flax.typing import Dtype, Initializer
 import jax.numpy as jnp
 
-from lumix.functional.readout import class_logits, class_probs, intensity
+from lumix.functional.readout import class_logits, class_probs, coherent_iq, intensity
+from lumix.linen.unitary import UnitaryLinear
 
 
 class IntensityReadout(nn.Module):
@@ -49,6 +50,30 @@ class IntensityReadout(nn.Module):
 
         outputs = self._apply_activation(outputs)
         return self._reshape_output(outputs)
+
+
+class CoherentIQReadout(nn.Module):
+    out_features: int
+    local_oscillator_phase: float = 0.0
+    mix: bool = True
+    init_scale: float = 1e-2
+
+    def _validate_out_features(self) -> None:
+        if self.out_features < 1:
+            raise ValueError("out_features must be at least 1")
+        if self.out_features % 2 != 0:
+            raise ValueError("CoherentIQReadout requires an even out_features")
+
+    @nn.compact
+    def __call__(self, values):
+        self._validate_out_features()
+        if self.mix:
+            values = UnitaryLinear(
+                width=values.shape[-1],
+                out_features=values.shape[-1],
+                init_scale=self.init_scale,
+            )(values)
+        return coherent_iq(values, self.out_features, self.local_oscillator_phase)
 
 
 class ProbabilityReadout(nn.Module):

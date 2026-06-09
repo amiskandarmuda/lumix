@@ -23,7 +23,7 @@ from lumix.functional.waveguide import (
     waveguide_linear,
     waveguide_propagator,
 )
-from lumix.functional.williamson import williamson_response
+from lumix.functional.williamson import electro_optic_phase_parameters, williamson_response
 
 __all__ = [
     "class_logits",
@@ -33,6 +33,7 @@ __all__ = [
     "encode_amplitude",
     "encode_complex",
     "encode_phase",
+    "electro_optic_phase_parameters",
     "intensity",
     "insertion_loss_bounds",
     "isometric_matrix",
