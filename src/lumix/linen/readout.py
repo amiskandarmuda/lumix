@@ -1,8 +1,12 @@
 import math
 
 from flax import linen as nn
+from flax.linen.dtypes import promote_dtype
+from flax.typing import Dtype, Initializer
+import jax.numpy as jnp
 
-from lumix.functional.readout import class_logits, class_probs, intensity
+from lumix.functional.readout import class_logits, class_probs, coherent_iq, intensity
+from lumix.linen.unitary import UnitaryLinear
 
 
 class IntensityReadout(nn.Module):
@@ -48,6 +52,30 @@ class IntensityReadout(nn.Module):
         return self._reshape_output(outputs)
 
 
+class CoherentIQReadout(nn.Module):
+    out_features: int
+    local_oscillator_phase: float = 0.0
+    mix: bool = True
+    init_scale: float = 1e-2
+
+    def _validate_out_features(self) -> None:
+        if self.out_features < 1:
+            raise ValueError("out_features must be at least 1")
+        if self.out_features % 2 != 0:
+            raise ValueError("CoherentIQReadout requires an even out_features")
+
+    @nn.compact
+    def __call__(self, values):
+        self._validate_out_features()
+        if self.mix:
+            values = UnitaryLinear(
+                width=values.shape[-1],
+                out_features=values.shape[-1],
+                init_scale=self.init_scale,
+            )(values)
+        return coherent_iq(values, self.out_features, self.local_oscillator_phase)
+
+
 class ProbabilityReadout(nn.Module):
     classes: int = 10
 
@@ -62,3 +90,30 @@ class LogitReadout(nn.Module):
     @nn.compact
     def __call__(self, values):
         return class_logits(intensity(values), self.classes)
+
+
+class RidgeReadout(nn.Module):
+    features: int
+    use_bias: bool = True
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+    kernel_init: Initializer = nn.initializers.lecun_normal()
+    bias_init: Initializer = nn.initializers.zeros
+
+    @nn.compact
+    def __call__(self, values):
+        kernel = self.param(
+            "kernel",
+            self.kernel_init,
+            (values.shape[-1], self.features),
+            self.param_dtype,
+        )
+        bias = None
+        if self.use_bias:
+            bias = self.param("bias", self.bias_init, (self.features,), self.param_dtype)
+
+        values, kernel, bias = promote_dtype(values, kernel, bias, dtype=self.dtype)
+        outputs = jnp.matmul(values, kernel)
+        if bias is not None:
+            outputs = outputs + bias
+        return outputs

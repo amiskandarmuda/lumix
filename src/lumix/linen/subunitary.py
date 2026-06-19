@@ -1,19 +1,31 @@
+"""Flax modules for passive subunitary optical linear transforms."""
+
 from flax import linen as nn
 
 import jax.numpy as jnp
 from jax import random
 from flax.linen import nowrap
 
+from lumix.functional.routing import RoutingLimit, routing_leakage
 from lumix.functional.unitary import combine_complex_parts
 from lumix.functional.subunitary import insertion_loss_bounds, subunitary_linear, subunitary_matrix
 
 
 class SubUnitaryLinear(nn.Module):
+    """Dense passive subunitary optical linear layer.
+
+    Singular values are constrained by `insertion_loss_db`. If `routing_limit`
+    is set, the layer reports fractional nonlocal routing power to the Flax
+    `metrics` collection as `routing_leakage`. Because the metric is
+    fractional, adding uniform loss cannot reduce it.
+    """
+
     width: int
     out_features: int | None = None
     insertion_loss_db: float | tuple[float | None, float | None] = 0.0
     init_scale: float = 1e-2
     singular_bias: float = 3.0
+    routing_limit: RoutingLimit | None = None
 
     @nowrap
     def _complex_param(self, name: str, size: int) -> jnp.ndarray:
@@ -33,8 +45,6 @@ class SubUnitaryLinear(nn.Module):
         input_features = values.shape[-1]
         rank = min(output_features, input_features)
         singular_min, singular_max = insertion_loss_bounds(self.insertion_loss_db)
-        singular_min = self.param("singular_min", lambda key: jnp.asarray(singular_min, dtype=jnp.float32))
-        singular_max = self.param("singular_max", lambda key: jnp.asarray(singular_max, dtype=jnp.float32))
         singular_raw = self.param(
             "singular_raw",
             lambda key: jnp.full((rank,), self.singular_bias, dtype=jnp.float32),
@@ -48,4 +58,6 @@ class SubUnitaryLinear(nn.Module):
             output_features,
             input_features,
         )
+        if self.routing_limit is not None:
+            self.sow("metrics", "routing_leakage", routing_leakage(matrix, self.routing_limit))
         return subunitary_linear(values, matrix)

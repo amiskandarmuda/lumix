@@ -92,8 +92,7 @@ def test_subunitary_matrix_has_bounded_singular_values():
         combine_complex_parts(params["left_re"], params["left_im"]),
         combine_complex_parts(params["right_re"], params["right_im"]),
         params["singular_raw"],
-        variables["params"]["singular_min"],
-        variables["params"]["singular_max"],
+        *insertion_loss_bounds((0.5, 2.0)),
         8,
         8,
     )
@@ -108,7 +107,7 @@ def test_subunitary_fixed_loss_sets_exact_singular_values():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(4), values)
     params = variables["params"]
-    singular = singular_values_in_bounds(params["singular_raw"], params["singular_min"], params["singular_max"])
+    singular = singular_values_in_bounds(params["singular_raw"], *insertion_loss_bounds(1.5))
     target = insertion_loss_amplitude(1.5)
     assert float(jnp.max(jnp.abs(singular - target))) < 1e-5
 
@@ -118,7 +117,7 @@ def test_subunitary_supports_lower_bounded_loss():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(5), values)
     params = variables["params"]
-    singular = singular_values_in_bounds(params["singular_raw"], params["singular_min"], params["singular_max"])
+    singular = singular_values_in_bounds(params["singular_raw"], *insertion_loss_bounds((1.0, None)))
     _, singular_max = insertion_loss_bounds((1.0, None))
     assert float(jnp.max(singular)) <= float(singular_max) + 1e-5
 
@@ -128,9 +127,21 @@ def test_subunitary_supports_upper_bounded_loss():
     values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
     variables = model.init(jax.random.key(6), values)
     params = variables["params"]
-    singular = singular_values_in_bounds(params["singular_raw"], params["singular_min"], params["singular_max"])
+    singular = singular_values_in_bounds(params["singular_raw"], *insertion_loss_bounds((None, 2.0)))
     singular_min, _ = insertion_loss_bounds((None, 2.0))
     assert float(jnp.min(singular)) >= float(singular_min) - 1e-5
+
+
+def test_subunitary_loss_bounds_are_not_trainable_params():
+    model = SubUnitaryLinear(width=8, insertion_loss_db=(0.5, 2.0))
+    values = (jnp.ones((2, 8)) + 1j * jnp.ones((2, 8))).astype(jnp.complex64)
+
+    variables = model.init(jax.random.key(16), values)
+    params = variables["params"]
+
+    assert "singular_raw" in params
+    assert "singular_min" not in params
+    assert "singular_max" not in params
 
 
 def test_dense_layers_compose_with_readout():
@@ -169,8 +180,7 @@ def test_subunitary_train_step_preserves_passive_bounds():
         combine_complex_parts(params["left_re"], params["left_im"]),
         combine_complex_parts(params["right_re"], params["right_im"]),
         params["singular_raw"],
-        params["singular_min"],
-        params["singular_max"],
+        *insertion_loss_bounds((0.5, 2.0)),
         10,
         16,
     )
