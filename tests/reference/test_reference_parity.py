@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import os
 import sys
 
@@ -78,8 +79,36 @@ def test_neurophox_clements_decomposition_convention_matches_square_unitary():
     assert float(metrics["relative_frobenius_error"]) < 1e-5
 
 
-def test_neuroptica_import_available_for_external_insitu_parity():
+def test_neuroptica_insitu_interference_sign_matches_reference_convention():
     _add_reference_path("NEUROPTICA_PATH")
     module = importlib.import_module("neuroptica.component_layers")
+    source = inspect.getsource(module.OpticalMesh.compute_gradients)
 
     assert hasattr(module, "OpticalMesh")
+    assert "-1 * np.imag(A_phi * A_phi_adj)" in source
+    assert "-1 * np.imag(A_theta * A_theta_adj)" in source
+
+    inputs = np.asarray([1.0 + 0.4j, -0.3 + 0.8j], dtype=np.complex64)
+    targets = np.asarray([0.2 - 0.1j, 0.5 + 0.3j], dtype=np.complex64)
+    phase = 0.37
+    outputs = inputs * np.exp(1j * phase)
+    cotangent = 2.0 * (outputs - targets) / outputs.size
+    adjoint = np.conj(cotangent)
+    measured = np.sum(-np.imag(outputs * adjoint))
+
+    eps = 1e-5
+    plus = inputs * np.exp(1j * (phase + eps))
+    minus = inputs * np.exp(1j * (phase - eps))
+    finite_difference = (np.mean(np.abs(plus - targets) ** 2) - np.mean(np.abs(minus - targets) ** 2)) / (2.0 * eps)
+
+    assert np.allclose(measured, finite_difference, atol=1e-3)
+
+
+def test_neurophox_adjoint_variable_gradient_uses_bloch_effective_phase_layout():
+    _add_reference_path("NEUROPHOX_PATH")
+    module = importlib.import_module("neurophox.numpy.generic")
+    source = inspect.getsource(module.MeshNumpyLayer.adjoint_variable_gradient)
+
+    assert "interference_meas = 2 * (input_fields * adjoint_input_fields.conj()).imag" in source
+    assert "internal_meas[:, ::2] / 2 - internal_meas[:, 1::2] / 2" in source
+    assert "external_meas[:, ::2]" in source

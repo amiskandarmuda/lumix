@@ -186,12 +186,13 @@ def apply_pair_layer(
     output: jnp.ndarray,
     hadamard: bool = False,
 ) -> jnp.ndarray:
-    even = values[..., 0::2]
-    odd = values[..., 1::2]
-    upper = internal[0::2]
-    lower = internal[1::2]
-    output_upper = output[0::2]
-    output_lower = output[1::2]
+    pair_width = 2 * (values.shape[-1] // 2)
+    even = values[..., :pair_width:2]
+    odd = values[..., 1:pair_width:2]
+    upper = internal[:pair_width:2]
+    lower = internal[1:pair_width:2]
+    output_upper = output[:pair_width:2]
+    output_lower = output[1:pair_width:2]
     u11, u12, u21, u22 = pair_coefficients(
         upper,
         lower,
@@ -201,9 +202,9 @@ def apply_pair_layer(
     )
     next_even = even * u11 + odd * u21
     next_odd = even * u12 + odd * u22
-    next_values = jnp.empty_like(values)
-    next_values = next_values.at[..., 0::2].set(next_even)
-    next_values = next_values.at[..., 1::2].set(next_odd)
+    next_values = values
+    next_values = next_values.at[..., :pair_width:2].set(next_even)
+    next_values = next_values.at[..., 1:pair_width:2].set(next_odd)
     return next_values
 
 

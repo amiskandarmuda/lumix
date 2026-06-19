@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 
-from lumix.functional.clements import clements_pair
+from lumix.functional.clements import clements_pair, init_clements
 from lumix.functional.clements_convert import clements_transfer_matrix, identity_clements_params
 from lumix.functional.unitary import unitary_linear
 from lumix.linen.unitary import UnitaryLinear
@@ -48,6 +48,10 @@ def _linear_cross_entropy(params, x, y):
 
 def _linear_accuracy(params, x, y):
     return jnp.mean(jnp.argmax(_linear_logits(params, x), axis=-1) == jnp.argmax(y, axis=-1))
+
+
+def _tree_l2(tree):
+    return jnp.sqrt(sum(jnp.sum(jnp.square(leaf)) for leaf in jax.tree_util.tree_leaves(tree)))
 
 
 def test_ffzero_margin_loss_matches_reference_formula():
@@ -229,6 +233,83 @@ def test_insitu_mse_gradients_match_jax_grad_for_clements_phases():
     assert jnp.allclose(actual["theta"], expected["theta"], atol=1e-6)
     assert jnp.allclose(actual["phi"], expected["phi"], atol=1e-6)
     assert jnp.allclose(actual["gamma"], expected["gamma"], atol=1e-6)
+
+
+def test_insitu_gradients_do_not_call_jax_ad(monkeypatch):
+    params = identity_clements_params(2, depth=2)
+    params = {**params, "theta": params["theta"].at[0, 0].set(jnp.pi - 0.35)}
+    inputs = jnp.array([[1.0 + 0.0j, 0.0 + 0.0j], [0.0 + 0.0j, 1.0 + 0.0j]], dtype=jnp.complex64)
+    targets = jnp.array([[0.0 + 0.0j, 1.0 + 0.0j], [1.0 + 0.0j, 0.0 + 0.0j]], dtype=jnp.complex64)
+    labels = jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=jnp.float32)
+
+    def fail_ad(*args, **kwargs):
+        raise AssertionError("production in-situ gradients must not use JAX AD")
+
+    monkeypatch.setattr(jax, "grad", fail_ad)
+    monkeypatch.setattr(jax, "value_and_grad", fail_ad)
+
+    gradients = insitu_mse_gradients(params, inputs, targets)
+    result = insitu_classification_step(params, inputs, labels, learning_rate=1.0)
+
+    assert float(_tree_l2(gradients)) > 1e-2
+    assert float(_tree_l2(result.gradients)) > 1e-2
+
+
+@pytest.mark.parametrize("width", [2, 3, 4])
+def test_insitu_field_interference_gradients_match_jax_grad_for_multiple_widths(width):
+    depth = width
+    params = init_clements(jax.random.key(width), width, depth)
+    batch = 3
+    real = jax.random.normal(jax.random.key(10 + width), (batch, width), dtype=jnp.float32)
+    imag = jax.random.normal(jax.random.key(20 + width), (batch, width), dtype=jnp.float32)
+    inputs = (real + 1j * imag).astype(jnp.complex64)
+    target_real = jax.random.normal(jax.random.key(30 + width), (batch, width), dtype=jnp.float32)
+    target_imag = jax.random.normal(jax.random.key(40 + width), (batch, width), dtype=jnp.float32)
+    targets = (target_real + 1j * target_imag).astype(jnp.complex64)
+
+    def loss_fn(current):
+        outputs = clements_pair(inputs, current["theta"], current["phi"], current["gamma"])
+        return jnp.mean(jnp.square(jnp.abs(outputs - targets)))
+
+    expected = jax.grad(loss_fn)(params)
+    actual = insitu_mse_gradients(params, inputs, targets)
+
+    assert float(_tree_l2(actual)) > 1e-2
+    assert jnp.allclose(actual["theta"], expected["theta"], atol=5e-5)
+    assert jnp.allclose(actual["phi"], expected["phi"], atol=5e-5)
+    assert jnp.allclose(actual["gamma"], expected["gamma"], atol=5e-5)
+
+
+def test_insitu_field_interference_gradients_match_central_finite_difference():
+    width = 3
+    params = init_clements(jax.random.key(12), width, depth=width)
+    inputs = jnp.array(
+        [
+            [0.8 + 0.2j, -0.3 + 0.5j, 0.6 - 0.1j],
+            [-0.4 + 0.1j, 0.7 - 0.2j, 0.2 + 0.3j],
+        ],
+        dtype=jnp.complex64,
+    )
+    targets = jnp.array(
+        [
+            [-0.1 + 0.4j, 0.6 + 0.2j, 0.3 - 0.7j],
+            [0.5 - 0.3j, -0.2 + 0.1j, 0.4 + 0.6j],
+        ],
+        dtype=jnp.complex64,
+    )
+
+    def loss_fn(current):
+        outputs = clements_pair(inputs, current["theta"], current["phi"], current["gamma"])
+        return jnp.mean(jnp.square(jnp.abs(outputs - targets)))
+
+    gradients = insitu_mse_gradients(params, inputs, targets)
+    eps = 1e-3
+    checks = [("theta", (0, 0)), ("phi", (0, 0)), ("gamma", (0, 1))]
+    for name, index in checks:
+        plus = {**params, name: params[name].at[index].add(eps)}
+        minus = {**params, name: params[name].at[index].add(-eps)}
+        finite_difference = (loss_fn(plus) - loss_fn(minus)) / (2.0 * eps)
+        assert jnp.allclose(gradients[name][index], finite_difference, atol=2e-3)
 
 
 def test_insitu_training_reduces_physical_clements_classification_loss():
