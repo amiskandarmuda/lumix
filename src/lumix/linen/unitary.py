@@ -43,6 +43,7 @@ class UnitaryLinear(nn.Module):
             output_features,
             input_features,
         )
+        self.sow("lumix_inverse_design", "matrix", matrix)
         if self.routing_limit is not None:
             self.sow("metrics", "routing_leakage", routing_leakage(matrix, self.routing_limit))
         return unitary_linear(values, matrix)

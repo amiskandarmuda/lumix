@@ -1,0 +1,39 @@
+{
+  "dataset": {
+    "name": "mnist_pca16",
+    "components": 16,
+    "raw_dir": "../../../datasets/mnist_pca16/raw",
+    "processed_path": "../../../datasets/mnist_pca16/processed/mnist_pca16_zscore.npz",
+    "preprocessing": "pca_zscore"
+  },
+  "model": {
+    "layers": 5,
+    "width": 16,
+    "loss_db": [0.0, null],
+    "routing_limit": 4,
+    "hard_routing": false,
+    "input_amplitude": 0.25,
+    "phase_scale": 0.5,
+    "classes": 10,
+    "nonlinearity": "repeated_phase_mask",
+    "readout": "temperature_softmax",
+    "init_gamma": 10.0,
+    "layer_name_prefix": "subunitary",
+    "readout_port_start": null
+  },
+  "training": {
+    "epochs": 300,
+    "batch_size": 1000,
+    "learning_rate": 0.005,
+    "routing_penalty_weight": 0.5,
+    "routing_leakage_target": 0.1,
+    "loss_guard_db": null,
+    "loss_guard_weight": 0.0,
+    "select_best_checkpoint": true,
+    "checkpoint_epochs": [1, 25, 50, 100, 150, 200, 250, 300],
+    "seed": 7
+  },
+  "outputs": {
+    "run_dir": "runs/default"
+  }
+}

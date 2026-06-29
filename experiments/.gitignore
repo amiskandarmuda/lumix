@@ -1,0 +1,13 @@
+datasets/*/raw/*
+datasets/*/processed/*.npz
+datasets/*/processed/*.json
+cases/*/*/datasets/*/raw/*
+cases/*/*/datasets/*/processed/*.npz
+cases/*/*/datasets/*/processed/*.json
+cases/*/*/layouts/*/*.gds
+cases/*/*/layouts/*/*.oas
+cases/*/*/layouts/*/*.png
+cases/*/*/layouts/*/*.json
+cases/*/*/runs/*
+!**/.gitkeep
+!**/README.md
